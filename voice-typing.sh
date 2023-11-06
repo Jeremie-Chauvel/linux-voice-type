@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# /usage exec ./record-audio.sh twice to start and stop recording
+# /usage exec ./voice-typing.sh twice to start and stop recording
 set -euo pipefail
 IFS=$'\n\t'
 
