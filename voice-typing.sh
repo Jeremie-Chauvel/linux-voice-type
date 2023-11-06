@@ -1,38 +1,34 @@
 #!/usr/bin/env bash
+# usage: exec ./voice-typing.sh twice to start and stop recording
+# Dependencies: curl, jq, arecord, xdotool, killall
 
-# /usage exec ./voice-typing.sh twice to start and stop recording
 set -euo pipefail
 IFS=$'\n\t'
 
+# Configuration
 readonly PID_FILE="${HOME}/.recordpid"
 readonly FILE="${HOME}/.voice-type/recording"
 readonly MAX_DURATION=15
-
-early_exit_if_command_not_found() {
-  set +u
-  local command_name="$1"
-  set -u
-  set +e
-  is_command "$command_name"
-  result_status="$?"
-  set -e
-  if [ "$result_status" -gt '0' ]; then
-    echo "command $command_name not found, install it or make it available in path"
-    exit 1
-  fi
-}
+readonly AUDIO_INPUT='hw:0,0' # Use `arecord -l` to list available devices
+source "$HOME/.ai-token"      # Ensure this file has restrictive permissions
 
 start_recording() {
   mkdir -p "$(dirname "$FILE")"
-  echo "aaa" >"$PID_FILE"
-  nohup arecord --device=hw:0,0 --format cd "$FILE.wav" --duration="$MAX_DURATION" &>/dev/null &
+  echo "Starting new recording..."
+  nohup arecord --device="$AUDIO_INPUT" --format cd "$FILE.wav" --duration="$MAX_DURATION" &>/dev/null &
+  echo $! >"$PID_FILE"
 }
 
 stop_recording() {
-  set +e
-  killall -w arecord
-  set -e
-  rm -f "$PID_FILE"
+  echo "Stopping recording..."
+  if [ -s "$PID_FILE" ]; then
+    local pid=$(<"$PID_FILE")
+    kill "$pid" && wait "$pid" 2>/dev/null || killall -w arecord
+    rm -f "$PID_FILE"
+    return 0
+  fi
+  echo "No recording process found."
+
 }
 
 write_transcript() {
@@ -40,56 +36,60 @@ write_transcript() {
   xdotool type --clearmodifiers --file "$FILE.txt"
 }
 
-transcript() {
+transcribe_with_openai() {
+  curl --silent --fail --request POST \
+    --url https://api.openai.com/v1/audio/transcriptions \
+    --header "Authorization: Bearer $OPEN_AI_TOKEN" \
+    --header 'Content-Type: multipart/form-data' \
+    --form file="@$FILE.wav" \
+    --form model=whisper-1 \
+    --form response_format=text \
+    -o "${FILE}.txt"
+}
 
-  if [[ -z "$DEEPGRAM_TOKEN" ]]; then
-    curl --silent --request POST \
-      --url https://api.openai.com/v1/audio/transcriptions \
-      --header "Authorization: Bearer $OPEN_AI_TOKEN" \
-      --header 'Content-Type: multipart/form-data' \
-      --form file="@$FILE.wav" \
-      --form model=whisper-1 \
-      --form response_format=text \
-      -o "${FILE}.txt"
-    return 0
-  fi
-  curl --silent \
-    --request POST \
+transcribe_with_deepgram() {
+  curl --silent --fail --request POST \
+    --url 'https://api.deepgram.com/v1/listen?smart_format=true' \
     --header "Authorization: Token $DEEPGRAM_TOKEN" \
     --header 'Content-Type: audio/wav' \
     --data-binary "@$FILE.wav" \
-    --url 'https://api.deepgram.com/v1/listen?smart_format=true&keywords=NodeJs&keywords=Java&keywords=React&keywords=NextJs&keywords=pnpm&keywords=TF1&keywords=Altar' \
     -o "${FILE}.json"
   jq '.results.channels[0].alternatives[0].transcript' -r "${FILE}.json" >"${FILE}.txt"
+}
 
+transcript() {
+  set +u
+  if [[ -z "$DEEPGRAM_TOKEN" ]]; then
+    transcribe_with_openai
+  else
+    transcribe_with_deepgram
+  fi
+  set -u
 }
 
 sanity_check() {
-  early_exit_if_command_not_found "xdotool"
-  early_exit_if_command_not_found "arecord"
-  early_exit_if_command_not_found "killall"
-  early_exit_if_command_not_found "jq"
-  early_exit_if_command_not_found "curl"
-
-  source "$HOME/.ai-token"
-
+  for cmd in xdotool arecord killall jq curl; do
+    if ! command -v "$cmd" &>/dev/null; then
+      echo >&2 "Error: command $cmd not found."
+      exit 1
+    fi
+  done
+  set +u
   if [[ -z "$DEEPGRAM_TOKEN" ]] && [[ -z "$OPEN_AI_TOKEN" ]]; then
-    echo "You must set the DEEPGRAM_TOKEN or OPEN_AI_TOKEN environment variable."
+    echo >&2 "You must set the DEEPGRAM_TOKEN or OPEN_AI_TOKEN environment variable."
     exit 1
   fi
-
+  set -u
 }
 
 main() {
   sanity_check
 
   if [[ -f "$PID_FILE" ]]; then
-    echo "Recording ongoing, stopping..."
     stop_recording
     transcript
     write_transcript
   else
-    echo "No recording ongoing, starting a new recording..."
     start_recording
   fi
 }
