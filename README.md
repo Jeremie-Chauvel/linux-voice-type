@@ -6,10 +6,11 @@
 sudo apt install xdotool jq curl arecord killall -y
 ```
 
-you will need to set up an openAI key and put it in the `${HOME}/.openai-token` file
+You will need to set up an openAI or Deepgram key and put it in the `~/.ai-token` file
 
 ```txt
-TOKEN=xxxxx
+DEEPGRAM_TOKEN=xxxx
+OPEN_AI_TOKEN='sk-xxxx'
 ```
 
 you will need to select a device to record from, you can find the device name with:
@@ -27,7 +28,8 @@ Start the recording:
 ./voice-typing.sh
 ```
 
-stop the recording writing the text you spoke to your current cursor position:
+Stop the recording writing the text you spoke to your current cursor position:
+
 ```bash
 ./voice-typing.sh
 ```
