@@ -22,7 +22,8 @@ start_recording() {
 stop_recording() {
   echo "Stopping recording..."
   if [ -s "$PID_FILE" ]; then
-    local pid=$(<"$PID_FILE")
+    local pid
+    pid=$(<"$PID_FILE")
     kill "$pid" && wait "$pid" 2>/dev/null || killall -w arecord
     rm -f "$PID_FILE"
     return 0
